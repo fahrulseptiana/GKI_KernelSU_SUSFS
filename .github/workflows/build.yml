@@ -98,6 +98,33 @@ jobs:
         curl -L https://storage.googleapis.com/git-repo-downloads/repo -o "$GITHUB_WORKSPACE/git-repo/repo"
         chmod +x "$GITHUB_WORKSPACE/git-repo/repo"
         echo "$GITHUB_WORKSPACE/git-repo" >> "$GITHUB_PATH"
+
+        # Older Android clang prebuilts are linked against libncurses.so.5.
+        # Newer runners usually only ship libncurses.so.6, which is ABI-compatible
+        # enough for these host tools and avoids requiring root package installs.
+        find_system_lib() {
+          local name="$1"
+          ldconfig -p 2>/dev/null | awk -v name="$name" '$1 == name { print $NF; exit }'
+        }
+
+        if [ -z "$(find_system_lib libncurses.so.5)" ]; then
+          NCURSES6="$(find_system_lib libncurses.so.6)"
+          TINFO6="$(find_system_lib libtinfo.so.6)"
+
+          if [ -n "$NCURSES6" ]; then
+            NCURSES_COMPAT="$GITHUB_WORKSPACE/ncurses-compat"
+            mkdir -p "$NCURSES_COMPAT"
+            ln -sf "$NCURSES6" "$NCURSES_COMPAT/libncurses.so.5"
+
+            if [ -n "$TINFO6" ]; then
+              ln -sf "$TINFO6" "$NCURSES_COMPAT/libtinfo.so.5"
+            fi
+
+            echo "LD_LIBRARY_PATH=$NCURSES_COMPAT${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}" >> "$GITHUB_ENV"
+          else
+            echo "Warning: libncurses.so.5 is missing and libncurses.so.6 was not found for compatibility"
+          fi
+        fi
         
         # Clone patches if commit is provided
         if [ -n "${{ inputs.patches_commit }}" ]; then
