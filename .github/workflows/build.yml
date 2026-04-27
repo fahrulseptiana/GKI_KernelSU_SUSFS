@@ -233,6 +233,11 @@ jobs:
       with:
         kernel_version: ${{ steps.parse.outputs.kernel_version }}
 
+    - name: Setup Droidspaces GKI Support
+      uses: ./.github/actions/droidspaces-gki
+      with:
+        kernel_version: ${{ steps.parse.outputs.kernel_version }}
+
     - name: Configure Kernel Options
       uses: ./.github/actions/configure-kernel
       with:

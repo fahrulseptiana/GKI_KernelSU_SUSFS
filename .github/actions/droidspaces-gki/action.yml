@@ -1,0 +1,110 @@
+name: 'Setup Droidspaces GKI Support'
+description: 'Apply Droidspaces GKI kABI patches and required gki_defconfig options'
+
+inputs:
+  kernel_version:
+    description: 'Kernel version (e.g., 6.6)'
+    required: true
+
+runs:
+  using: "composite"
+  steps:
+    - name: Clone Droidspaces OSS
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        DROIDSPACES_DIR="${{ github.workspace }}/Droidspaces-OSS"
+        rm -rf "$DROIDSPACES_DIR"
+        git clone --depth=1 https://github.com/ravindu644/Droidspaces-OSS.git "$DROIDSPACES_DIR"
+
+    - name: Apply Droidspaces GKI kABI Patches
+      shell: bash
+      working-directory: ${{ github.workspace }}/kernel/common
+      run: |
+        set -euo pipefail
+
+        KERNEL_VERSION="${{ inputs.kernel_version }}"
+        PATCH_ROOT="${{ github.workspace }}/Droidspaces-OSS/Documentation/resources/kernel-patches/GKI"
+
+        version_lt() {
+          [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | head -n1)" = "$1" ] && [ "$1" != "$2" ]
+        }
+
+        version_le() {
+          [ "$1" = "$2" ] || version_lt "$1" "$2"
+        }
+
+        apply_droidspaces_patch() {
+          local patch_file="$1"
+          local patch_name
+          local patch_log
+
+          patch_name="$(basename "$patch_file")"
+          patch_log="$(mktemp)"
+
+          if [ ! -f "$patch_file" ]; then
+            echo "Droidspaces patch not found: $patch_file"
+            exit 1
+          fi
+
+          if patch -p1 --forward --dry-run < "$patch_file" >"$patch_log" 2>&1; then
+            echo "Applying Droidspaces patch: $patch_name"
+            patch -p1 --forward --no-backup-if-mismatch < "$patch_file"
+          elif patch -p1 --reverse --dry-run < "$patch_file" >/dev/null 2>&1; then
+            echo "Droidspaces patch already applied: $patch_name"
+          else
+            echo "Failed to apply Droidspaces patch: $patch_name"
+            cat "$patch_log"
+            exit 1
+          fi
+
+          rm -f "$patch_log"
+        }
+
+        if version_lt "$KERNEL_VERSION" "6.12"; then
+          apply_droidspaces_patch "$PATCH_ROOT/below-kernel-6.12/001.GKI-below-6.12-fix_sysvipc_kabi_6_7_8.patch"
+        else
+          apply_droidspaces_patch "$PATCH_ROOT/kernel-6.12/001.GKI-6.12-or-above-fix_sysvipc_kabi.patch"
+        fi
+
+        if version_le "$KERNEL_VERSION" "5.10"; then
+          apply_droidspaces_patch "$PATCH_ROOT/below-kernel-6.12/002.5.10_or_lower_use_android_abi_padding_for_posix_mqueue.patch"
+        fi
+
+    - name: Configure Droidspaces GKI Defconfig
+      shell: bash
+      working-directory: ${{ github.workspace }}/kernel/common
+      run: |
+        set -euo pipefail
+
+        DEFCONFIG="arch/arm64/configs/gki_defconfig"
+
+        if [ ! -f "$DEFCONFIG" ]; then
+          echo "gki_defconfig not found: $DEFCONFIG"
+          exit 1
+        fi
+
+        set_config() {
+          local name="$1"
+
+          if grep -Eq "^(# ${name} is not set|${name}=)" "$DEFCONFIG"; then
+            sed -i -E "s/^# ${name} is not set$/${name}=y/; s/^${name}=.*/${name}=y/" "$DEFCONFIG"
+          else
+            printf '%s=y\n' "$name" >> "$DEFCONFIG"
+          fi
+        }
+
+        set_config CONFIG_SYSVIPC
+        set_config CONFIG_POSIX_MQUEUE
+        set_config CONFIG_IPC_NS
+        set_config CONFIG_PID_NS
+        set_config CONFIG_DEVTMPFS
+        set_config CONFIG_NETFILTER_XT_MATCH_ADDRTYPE
+        set_config CONFIG_NETFILTER_XT_TARGET_REJECT
+        set_config CONFIG_NETFILTER_XT_TARGET_LOG
+        set_config CONFIG_NETFILTER_XT_MATCH_RECENT
+        set_config CONFIG_IP_SET
+        set_config CONFIG_IP_SET_HASH_IP
+        set_config CONFIG_IP_SET_HASH_NET
+        set_config CONFIG_NETFILTER_XT_SET
