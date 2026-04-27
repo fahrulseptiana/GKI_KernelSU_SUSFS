@@ -138,7 +138,14 @@ runs:
           fi
         done
 
-        make ARCH=arm64 LLVM=1 LLVM_IAS=1 O="$OUT_DIR" gki_defconfig
+        MAKE_ARGS=(ARCH=arm64 O="$OUT_DIR")
+        if command -v ld.lld >/dev/null 2>&1; then
+          MAKE_ARGS+=(LLVM=1 LLVM_IAS=1)
+        else
+          echo "ld.lld not found; normalizing Droidspaces defconfig without LLVM"
+        fi
+
+        make "${MAKE_ARGS[@]}" gki_defconfig
 
         for config in "${REQUIRED_CONFIGS[@]}"; do
           if ! grep -qx "${config}=y" "$OUT_DIR/.config"; then
@@ -147,5 +154,5 @@ runs:
           fi
         done
 
-        make ARCH=arm64 LLVM=1 LLVM_IAS=1 O="$OUT_DIR" savedefconfig
+        make "${MAKE_ARGS[@]}" savedefconfig
         cp "$OUT_DIR/defconfig" "$DEFCONFIG"
