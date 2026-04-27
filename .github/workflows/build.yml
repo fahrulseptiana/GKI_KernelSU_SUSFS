@@ -284,13 +284,25 @@ jobs:
         os_patch_level: ${{ steps.parse.outputs.os_patch_level }}
 
     - name: Apply ABI Compare Bypass
-      if: false
+      if: ${{ steps.parse.outputs.android_version == 'android12' && steps.parse.outputs.kernel_version == '5.10' }}
       working-directory: ${{ github.workspace }}/kernel
       run: |
         # ABI compare bypass per kernel/android version
         # Edit each block as needed per version
         if [[ "$ANDROID_VERSION" == "android12" && "$KERNEL_VERSION" == "5.10" ]]; then
-          sed -i 's/^\s*exit 1$/    echo "Who Cares? Bypassing Now!"/' build/abi/compare_to_symbol_list
+          ABI_COMPARE="build/abi/compare_to_symbol_list"
+
+          if [ ! -f "$ABI_COMPARE" ]; then
+            echo "ABI compare script not found: $ABI_COMPARE"
+            exit 1
+          fi
+
+          sed -i 's/^[[:space:]]*exit 1$/    echo "Bypassing ABI symbol-list mismatch for patched 5.10 GKI build"/' "$ABI_COMPARE"
+
+          if ! grep -q 'Bypassing ABI symbol-list mismatch' "$ABI_COMPARE"; then
+            echo "Failed to patch ABI compare script: $ABI_COMPARE"
+            exit 1
+          fi
         elif [[ "$ANDROID_VERSION" == "android13" && "$KERNEL_VERSION" == "5.10" ]]; then
           sed -i 's/^\s*exit 1$/    echo "Who Cares? Bypassing Now!"/' build/kernel/abi/compare_to_symbol_list
         elif [[ "$ANDROID_VERSION" == "android13" && "$KERNEL_VERSION" == "5.15" ]]; then
