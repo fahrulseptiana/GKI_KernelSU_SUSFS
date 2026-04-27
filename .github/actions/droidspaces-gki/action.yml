@@ -85,6 +85,22 @@ runs:
           exit 1
         fi
 
+        REQUIRED_CONFIGS=(
+          CONFIG_SYSVIPC
+          CONFIG_POSIX_MQUEUE
+          CONFIG_IPC_NS
+          CONFIG_PID_NS
+          CONFIG_DEVTMPFS
+          CONFIG_NETFILTER_XT_MATCH_ADDRTYPE
+          CONFIG_NETFILTER_XT_TARGET_REJECT
+          CONFIG_NETFILTER_XT_TARGET_LOG
+          CONFIG_NETFILTER_XT_MATCH_RECENT
+          CONFIG_IP_SET
+          CONFIG_IP_SET_HASH_IP
+          CONFIG_IP_SET_HASH_NET
+          CONFIG_NETFILTER_XT_SET
+        )
+
         set_config() {
           local name="$1"
 
@@ -95,16 +111,33 @@ runs:
           fi
         }
 
-        set_config CONFIG_SYSVIPC
-        set_config CONFIG_POSIX_MQUEUE
-        set_config CONFIG_IPC_NS
-        set_config CONFIG_PID_NS
-        set_config CONFIG_DEVTMPFS
-        set_config CONFIG_NETFILTER_XT_MATCH_ADDRTYPE
-        set_config CONFIG_NETFILTER_XT_TARGET_REJECT
-        set_config CONFIG_NETFILTER_XT_TARGET_LOG
-        set_config CONFIG_NETFILTER_XT_MATCH_RECENT
-        set_config CONFIG_IP_SET
-        set_config CONFIG_IP_SET_HASH_IP
-        set_config CONFIG_IP_SET_HASH_NET
-        set_config CONFIG_NETFILTER_XT_SET
+        for config in "${REQUIRED_CONFIGS[@]}"; do
+          set_config "$config"
+        done
+
+        OUT_DIR="${{ github.workspace }}/kernel/out/droidspaces-defconfig"
+        mkdir -p "$OUT_DIR"
+
+        BUILD_TOOLS="${{ github.workspace }}/kernel/build/build-tools/path/linux-x86"
+        if [ -d "$BUILD_TOOLS" ]; then
+          export PATH="$BUILD_TOOLS:$PATH"
+        fi
+
+        for clang in "${{ github.workspace }}"/kernel/prebuilts*/clang/host/linux-x86/clang-*/bin/clang; do
+          if [ -x "$clang" ]; then
+            export PATH="$(dirname "$clang"):$PATH"
+            break
+          fi
+        done
+
+        make ARCH=arm64 LLVM=1 LLVM_IAS=1 O="$OUT_DIR" gki_defconfig
+
+        for config in "${REQUIRED_CONFIGS[@]}"; do
+          if ! grep -qx "${config}=y" "$OUT_DIR/.config"; then
+            echo "Required Droidspaces config is not enabled: $config"
+            exit 1
+          fi
+        done
+
+        make ARCH=arm64 LLVM=1 LLVM_IAS=1 O="$OUT_DIR" savedefconfig
+        cp "$OUT_DIR/defconfig" "$DEFCONFIG"
