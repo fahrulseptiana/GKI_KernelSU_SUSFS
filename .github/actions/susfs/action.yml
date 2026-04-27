@@ -59,6 +59,38 @@ runs:
         SUSFS_VERSION="2.0.0"
         echo "SUSFS_VERSION=$SUSFS_VERSION" >> $GITHUB_ENV
 
+    - name: Adapt SUSFS Hooks for Wild KSU
+      shell: bash
+      run: |
+        PATCH_FILE="${{ github.workspace }}/susfs4ksu/kernel_patches/50_add_susfs_in_gki-${{ inputs.android_version }}-${{ inputs.kernel_version }}.patch"
+        KSU_DIR="${{ github.workspace }}/kernel/Wild_KSU/kernel"
+
+        if [ ! -f "$PATCH_FILE" ]; then
+          echo "SUSFS patch not found: $PATCH_FILE"
+          exit 1
+        fi
+
+        if [ ! -f "$KSU_DIR/ksud.c" ]; then
+          echo "Wild KSU source not found: $KSU_DIR"
+          exit 1
+        fi
+
+        if grep -q "bool ksu_init_rc_hook" "$KSU_DIR/ksud.c"; then
+          sed -i \
+            -e 's/extern struct static_key_true ksu_is_input_hook_enabled;/extern bool ksu_input_hook;/g' \
+            -e 's/static_branch_unlikely(&ksu_is_input_hook_enabled)/unlikely(ksu_input_hook)/g' \
+            -e 's/extern struct static_key_true ksu_is_init_rc_hook_enabled;/extern bool ksu_init_rc_hook;/g' \
+            -e 's/static_branch_unlikely(&ksu_is_init_rc_hook_enabled)/unlikely(ksu_init_rc_hook)/g' \
+            -e 's/extern struct static_key_true ksu_su_compat_enabled;/extern bool ksu_su_compat_enabled;/g' \
+            -e 's/static_branch_likely(&ksu_su_compat_enabled)/likely(ksu_su_compat_enabled)/g' \
+            "$PATCH_FILE"
+
+          if grep -q "ksu_is_input_hook_enabled\|ksu_is_init_rc_hook_enabled\|static_branch_likely(&ksu_su_compat_enabled)" "$PATCH_FILE"; then
+            echo "Failed to adapt SUSFS hook guards for Wild KSU"
+            exit 1
+          fi
+        fi
+
     - name: Enable KernelSU SUSFS Config
       shell: bash
       working-directory: ${{ github.workspace }}/kernel
